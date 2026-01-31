@@ -1,0 +1,80 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String   @default("Main Account")
+  balance   Decimal  @default(0.00) @db.Decimal(20, 2)
+  currency  String   @default("INR")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  ledgerEntries LedgerEntry[]
+}
+
+model LedgerEntry {
+  id            String   @id @default(uuid())
+  transactionId String   // Groups the debit and credit together
+  accountId     String
+  amount        Decimal  @db.Decimal(20, 2) // Negative=Debit, Positive=Credit
+  description   String?
+  createdAt     DateTime @default(now())
+
+  account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([transactionId])
+}
+
+model IdempotencyKey {
+  key          String   @id
+  responseCode Int?
+  responseBody Json? // Stores the result of the completed transaction
+  lockedAt     DateTime @default(now()) // For "Processing" state
+  completed    Boolean  @default(false)
+}
+
+// Webhook configuration for merchant notifications
+model Webhook {
+  id        String   @id @default(uuid())
+  userId    String   // The merchant/user who registered this webhook
+  url       String   // The endpoint to send notifications to
+  secret    String   // HMAC secret for signature verification
+  events    String[] // ["transfer.completed", "transfer.failed"]
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries WebhookDelivery[]
+
+  @@index([userId])
+}
+
+// Webhook delivery attempts log
+model WebhookDelivery {
+  id            String   @id @default(uuid())
+  webhookId     String
+  transactionId String   // The transaction that triggered this webhook
+  eventType     String   // e.g., "transfer.completed"
+  payload       Json     // The event payload sent
+  status        String   @default("pending") // pending, success, failed
+  attempts      Int      @default(0)
+  lastAttemptAt DateTime?
+  nextRetryAt   DateTime?
+  responseCode  Int?
+  responseBody  String?
+  createdAt     DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId])
+  @@index([status, nextRetryAt])
+  @@index([transactionId])
+}
